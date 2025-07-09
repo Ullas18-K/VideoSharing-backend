@@ -50,9 +50,9 @@ const userschema = new Schema({
 })
 
 //we use this pre/post hooks (middlewares in mongoose) before/after performing any actions like saving, authorization, validation etc  
-userschema.pre('save', function (next) {
+userschema.pre('save',async function (next) {
     if (!this.isModified("password")) return next();
-    this.password = bcrypt.hash(this.password, 10);
+    this.password =await bcrypt.hash(this.password, 10);
 })
 
 //these are custom methods which can be used with documents(tuples) of a model(table) in other files just like the ones which already exist like let's say user1= new User({all fields}) , now user1 is the document and methods like user1.find, .findone(), updateone() can be used alongside the follwinf custom methods

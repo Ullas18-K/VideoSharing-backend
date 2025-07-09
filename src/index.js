@@ -14,7 +14,7 @@ connectDB()
 .then(()=>{
     console.log("Successfully connected Server to MongoDB");
     app.listen(process.env.PORT || 8000,()=>{
-        console.log(`Server listening on port: ,${process.env.PORT}`);
+        console.log(`Server listening on port: ${process.env.PORT}`);
     })
     app.on("Error",(err)=>{
         console.error("Error in app section ",err);
