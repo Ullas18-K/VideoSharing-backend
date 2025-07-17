@@ -3,7 +3,6 @@ import ApiError from "../utils/Apierrors.js";
 import { User } from "../models/user.model.js"
 import uploadOnCloudinary from "../utils/cloudinary.js";
 import ApiResponse from "../utils/Apiresponse.js";
-import { json } from "express";
 import Jwt from "jsonwebtoken"
 
 //each method u define here does a different task for a particular endpoint in /user for example the registeruser logic is used when you are directed to /user/register route
@@ -194,7 +193,7 @@ const logoutUser = asynchandler(async (req, res) => {
     )
 
     //clear cookies for the user: same options gotta be used that you sent to the user
-     const options = {//these are collection secure flags
+    const options = {//these are collection secure flags
         httpOnly: true, //without these the cookies can be modified by frontend
         secure: true, //onlh https
         sameSite: "strict",
@@ -202,35 +201,35 @@ const logoutUser = asynchandler(async (req, res) => {
     }
 
     res.status(200)
-    .clearCookie("AccessTokenJWT",options)
-    .clearCookie("RefreshTokenJWT",options)
-    .json(
-        new ApiResponse(200,{},"User Logged out")
-    )
+        .clearCookie("AccessTokenJWT", options)
+        .clearCookie("RefreshTokenJWT", options)
+        .json(
+            new ApiResponse(200, {}, "User Logged out")
+        )
 })
 
-const refreshTokenRegenerate= asynchandler(async (req,res) => {
-  //now this was basically wriiten in order to order to continue sessions due to quick expiration of the accesstokens. so instead of throwing an error amd making the user login again we can make the req hit other api where if his refreshtoekn is valid then we'll just generate him new jwt's 
+const refreshTokenRegenerate = asynchandler(async (req, res) => {
+    //now this was basically wriiten in order to order to continue sessions due to quick expiration of the accesstokens. so instead of throwing an error amd making the user login again we can make the req hit other api where if his refreshtoekn is valid then we'll just generate him new jwt's 
 
-    const incomingRefreshToken= req.cookies.RefreshTokenJWT  //this is the encrypted incomingRefreshToken not your REFRESH_TOKEN_SECRET . the one user has and you have both are diff  
+    const incomingRefreshToken = req.cookies.RefreshTokenJWT  //this is the encrypted incomingRefreshToken not your REFRESH_TOKEN_SECRET . the one user has and you have both are diff  
 
-    if(!incomingRefreshToken){
-        throw new ApiError(400,"refreshToken Not found");
+    if (!incomingRefreshToken) {
+        throw new ApiError(400, "refreshToken Not found");
     }
 
-    const decodeJWT= Jwt.verify(incomingRefreshToken,process.env.REFRESH_TOKEN_SECRET);
-    if(!decodeJWT){
-        throw new ApiError(401,"Unauthorized Token");
+    const decodeJWT = Jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
+    if (!decodeJWT) {
+        throw new ApiError(401, "Unauthorized Token");
     }
 
-    const currentuser= await User.findById(decodeJWT.user_id).select("-password")
+    const currentuser = await User.findById(decodeJWT.user_id).select("-password")
 
-    if(currentuser.RefreshTokens !== incomingRefreshToken){ //checking if both have same encrypted refreshtokens
-        throw new ApiError(400,"Refresh token is expired or invalid");
+    if (currentuser.RefreshTokens !== incomingRefreshToken) { //checking if both have same encrypted refreshtokens
+        throw new ApiError(400, "Refresh token is expired or invalid");
     }
 
     //now generate new ones (both)
-    const {AccesstokenNEW,RefreshtokenNEW}= await GenerateRefreshAndAccessToken(currentuser._id)
+    const { AccesstokenNEW, RefreshtokenNEW } = await GenerateRefreshAndAccessToken(currentuser._id)
 
     const options = {//these are collection secure flags
         httpOnly: true, //without these the cookies can be modified by frontend
@@ -240,15 +239,131 @@ const refreshTokenRegenerate= asynchandler(async (req,res) => {
     }
 
     res.status(200)
-    .cookie("AccessTokenJWT",AccesstokenNEW,options)
-    .cookie("RefreshTokenJWT",RefreshtokenNEW,options)
-    .json(
-        new ApiResponse(200,
-            {
-                AccesstokenNEW,RefreshtokenNEW
-            }
-            ,"tokens Regenerated")
-    )
+        .cookie("AccessTokenJWT", AccesstokenNEW, options)
+        .cookie("RefreshTokenJWT", RefreshtokenNEW, options)
+        .json(
+            new ApiResponse(200,
+                {
+                    AccesstokenNEW, RefreshtokenNEW
+                }
+                , "tokens Regenerated")
+        )
 
 })
-export { registeruser, loginUser, logoutUser,refreshTokenRegenerate };
+
+const changeCurrentPassword = asynchandler(async (req, res) => {
+    const { currentPassword, Newpassword, confirmPassword } = req.body;
+
+    if ([currentPassword, Newpassword, confirmPassword].some((field) =>
+        field?.trim() === "" //gotta return the result
+    )) {
+        throw new ApiError(401, "All fields are required")
+    }
+
+    const currUser = await User.findById(req.user?._id) //got this "user" method from auth middleware
+
+    if (!await currUser.comparepassword(currentPassword)) {
+        throw new ApiError(401, "Current password in Incorrect")
+    }
+
+    if (Newpassword !== confirmPassword) {
+        throw new ApiError(400, "Password does'nt match")
+    }
+
+    currUser.password = Newpassword;
+    await currUser.save({ validateBeforeSave: false }) //saving is imp
+
+    res.status(200).json(
+        new ApiResponse(200, { success: true }, "Password Changes Successfully")
+    )
+})
+
+const getCurrentUser = asynchandler(async (req, res) => {
+    res.status(200).json(new ApiResponse(200, req.user, "User fetched successfully"))
+})
+
+const updateAccountDetails = asynchandler(async (req, res) => { //supports single field updation too
+    const { username, email, fullname } = req.body;
+
+    if ([currentPassword, Newpassword, confirmPassword].some((field) =>
+        field?.trim() === "" //gotta return the result
+    )) {
+        throw new ApiError(401, "Atleast one field must be provided")
+    }
+
+    const existingUser = await User.findOne({
+        $or: [{ username }, { email }],
+        _id: { $ne: req.user._id } //cz  if the user updates their name or email to the same value they already have, this will still throw an error — because findOne finds themself.
+    })
+    if (existingUser) {
+        throw new ApiError(409, "username or email already exists");
+    }
+
+    const updateDetail = {} //to store fields only which are updating
+    if (username?.trim()) updateDetail.username = username
+    if (fullname?.trim()) updateDetail.fullname = fullname
+    if (email?.trim()) updateDetail.email = email
+
+
+    const currUSer = await User.findByIdAndUpdate(req.user._id,
+        {
+            $set: updateDetail
+        },
+        { new: true } //tp return newly updated data
+    ).select("-password -RefreshTokens")
+
+    res.status(200).json(new ApiResponse(200, currUSer, "Account Details Updated Successfully"))
+})
+
+const UpdateUserAvatar= asynchandler(async (req,res) => {
+    const localpath= req.file?.path //req.file coz we're taking only one file unlike multiple files in registeruser , also we'll not defing name too coz it's understood
+    if(!localpath){
+        throw new ApiError(401,"Avatar is required")
+    }
+
+    const avatr=await uploadOnCloudinary(localpath);
+    if (!avatr) {
+        throw new ApiError(500, "couldn't upload Avatar... try again");
+    }
+
+    const updatecover= await User.findByIdAndUpdate(req.user._id,
+        {
+            $set:{avatar: avatr.url}
+        },
+        {new:true}
+    ).select("-password -RefreshTokens")
+
+    res.status(200).json(new ApiResponse(200,updatecover,"Avatar updated !!"))
+})
+
+const UpdateUserCover= asynchandler(async (req,res) => {
+    const localpath= req.file?.path //req.file coz we're taking only one file unlike multiple files in registeruser , also we'll not defing name too coz it's understood
+    if(!localpath){
+        throw new ApiError(401,"cover image is required")
+    }
+
+    const coverImage=await uploadOnCloudinary(localpath);
+    if (!coverImage) {
+        throw new ApiError(500, "couldn't upload coverimage... try again");
+    }
+
+    const updatecover=await User.findByIdAndUpdate(req.user._id,
+        {
+            $set:{coverimage: coverImage.url}
+        },
+        {new:true}
+    ).select("-password -RefreshTokens")
+
+    res.status(200).json(new ApiResponse(200,updatecover,"Cover Image updated !!"))
+})
+export {
+    registeruser,
+    loginUser,
+    logoutUser,
+    refreshTokenRegenerate,
+    changeCurrentPassword,
+    updateAccountDetails,
+    getCurrentUser,
+    UpdateUserCover,
+    UpdateUserAvatar
+};
