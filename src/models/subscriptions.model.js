@@ -2,7 +2,7 @@ import mongoose, { Schema } from "mongoose";
 
 
 const subschema = new Schema({ 
-    subsriber: { //one who is subscribing to other channel
+    subscriber: { //one who is subscribing to other channel
         type: Schema.Types.ObjectId,
         ref: "User",
     },

@@ -4,6 +4,9 @@ import { User } from "../models/user.model.js"
 import uploadOnCloudinary from "../utils/cloudinary.js";
 import ApiResponse from "../utils/Apiresponse.js";
 import Jwt from "jsonwebtoken"
+import { useInsertionEffect } from "react";
+import { json } from "express";
+import mongoose from "mongoose";
 
 //each method u define here does a different task for a particular endpoint in /user for example the registeruser logic is used when you are directed to /user/register route
 
@@ -315,47 +318,179 @@ const updateAccountDetails = asynchandler(async (req, res) => { //supports singl
     res.status(200).json(new ApiResponse(200, currUSer, "Account Details Updated Successfully"))
 })
 
-const UpdateUserAvatar= asynchandler(async (req,res) => {
-    const localpath= req.file?.path //req.file coz we're taking only one file unlike multiple files in registeruser , also we'll not defing name too coz it's understood
-    if(!localpath){
-        throw new ApiError(401,"Avatar is required")
+const UpdateUserAvatar = asynchandler(async (req, res) => {
+    const localpath = req.file?.path //req.file coz we're taking only one file unlike multiple files in registeruser , also we'll not defing name too coz it's understood
+    if (!localpath) {
+        throw new ApiError(401, "Avatar is required")
     }
 
-    const avatr=await uploadOnCloudinary(localpath);
+    const avatr = await uploadOnCloudinary(localpath);
     if (!avatr) {
         throw new ApiError(500, "couldn't upload Avatar... try again");
     }
 
-    const updatecover= await User.findByIdAndUpdate(req.user._id,
+    const updatecover = await User.findByIdAndUpdate(req.user._id,
         {
-            $set:{avatar: avatr.url}
+            $set: { avatar: avatr.url }
         },
-        {new:true}
+        { new: true }
     ).select("-password -RefreshTokens")
 
-    res.status(200).json(new ApiResponse(200,updatecover,"Avatar updated !!"))
+    res.status(200).json(new ApiResponse(200, updatecover, "Avatar updated !!"))
 })
 
-const UpdateUserCover= asynchandler(async (req,res) => {
-    const localpath= req.file?.path //req.file coz we're taking only one file unlike multiple files in registeruser , also we'll not defing name too coz it's understood
-    if(!localpath){
-        throw new ApiError(401,"cover image is required")
+const UpdateUserCover = asynchandler(async (req, res) => {
+    const localpath = req.file?.path //req.file coz we're taking only one file unlike multiple files in registeruser , also we'll not defing name too coz it's understood
+    if (!localpath) {
+        throw new ApiError(401, "cover image is required")
     }
 
-    const coverImage=await uploadOnCloudinary(localpath);
+    const coverImage = await uploadOnCloudinary(localpath);
     if (!coverImage) {
         throw new ApiError(500, "couldn't upload coverimage... try again");
     }
 
-    const updatecover=await User.findByIdAndUpdate(req.user._id,
+    const updatecover = await User.findByIdAndUpdate(req.user._id,
         {
-            $set:{coverimage: coverImage.url}
+            $set: { coverimage: coverImage.url }
         },
-        {new:true}
+        { new: true }
     ).select("-password -RefreshTokens")
 
-    res.status(200).json(new ApiResponse(200,updatecover,"Cover Image updated !!"))
+    res.status(200).json(new ApiResponse(200, updatecover, "Cover Image updated !!"))
 })
+
+const getUserProfile = asynchandler(async (req, res) => {  //controller for subscribers and subcribeb count for each user
+    const { userName } = req.params  // it's  an object that holds route parameters (the values from the URL that are marked as dynamic).
+    /*ex:app.get('/post/:postId/comment/:commentId', (req, res) => {
+  console.log(req.params); // { postId: '555', commentId: '999' }  //':' is used for route parameter 
+   res.send(`User ID is ${req.params.id}`); //User ID is 123
+});*/
+    //destructuring order doesn't matter
+    if (!userName.trim()) {
+        throw new ApiError(400, "Username not found");
+    }
+
+    //aggregation 
+    /* User.aggregate(
+         {}, stages in the pipeline each with $ ops for 
+         {},
+     )*/
+
+    //1st pipeline
+    //this channelinfo will return an array of objects within which it contains fields and extra specified fields of docs..most likely it would give array of 1 object coz only only one unique username exists 
+    const channelInfo = await User.aggregate([
+        {
+            $match: {
+                username: userName //now you got only one doc coz username's unique
+            }
+        },
+        {
+            $lookup: {
+                from: "subscriptions", //coz model name will become lowercase n plural
+                localField: "_id",
+                foreignField: "channel",
+                as: "Subcribers"  //will add a new field with name Subcribers which is an array of all docs from subscriptions model which match the current user id with channel 
+            }
+        },
+        {
+            $lookup: {
+                from: "subscriptions", //coz model name will become lowercase n plural
+                localField: "_id",
+                foreignField: "subscriber",
+                as: "SubcribedTo" //same here but matches with subscriber
+            }
+        },
+        { //except lookup if you gotta refer to values of any fields prefix $
+            $addFields: {
+                subcriberCount: {
+                    $size: "$Subcribers" //counts no of docs 
+                },
+                subscribedToCount: {
+                    $size: "$SubcribedTo"
+                },
+                isCurrentUserSubscribed: {
+                    $cond: {
+                        if: { $in: [req.user._id, "$Subcribers.subscriber"] }, //checks if the current user is in list that particular channel's subscribers
+                        then: true,
+                        else: false
+                    }
+                }
+            }
+        },
+        {
+            $project: {
+                fullname: 1,
+                username: 1,
+                subcriberCount: 1,
+                subscribedToCount: 1,
+                isCurrentUserSubscribed: 1,
+                avatar: 1,
+                coverimage: 1,
+                email: 1
+            }
+        }
+    ])
+
+    if (!channelInfo?.length > 0) {
+        throw new ApiError(404, "Channel Does'nt exist")
+    }
+
+    res.status(200).json(new ApiResponse(200, channelInfo[0], "User Details Successfullt fetched"))
+})
+
+const getWatchHistory = asynchandler(async (req, res) => {
+
+    //req.user._id==> this is just a string, so if you wanna convert it to actual mangodb id use the follwing
+    const currUser = User.aggregate([
+        {
+            $match: {
+                _id: mongoose.Types.ObjectId(req.user._id)
+            }
+        },
+        {
+            $lookup: {  //now all video docs from videos that match watchHistory will appear here
+                from: "videos",
+                localField: "WatchHistory",
+                foreignField: "_id",
+                as: "VideoList", //this new field will be temporarily added to user doc with alll video docs
+                pipeline: [ //this pipeline applys to the videoList field(the list of video docs will be input )
+                    //it's for Ownerdeatils(like his avatar username etc) in video docs ad this will return an array video of docs to videolist field
+                    {
+                        $lookup: {  
+                            from: "users",
+                            localField: "Owner",
+                            foreignField: "_id",
+                            as: "OwnerDetails", //this new field will be added to each video doc 
+                            pipeline:[//this pipeline applys to OwnerDetails field in each video doc
+                                //this will also return an array the follwing details to ownerdeatails field
+                                {
+                                    $project:{
+                                        fullname:1,
+                                        username:1,
+                                        avatar:1
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    { //since owner details gets an array of projected details fro subpipeline(though it's only one doc), for frontend easisness were gonna just add the first element to separate field
+                        $addFields:{
+                            ownerD:{
+                                $first:"$OwnerDetails"
+                            }
+                        }
+                    }
+                ]
+            },
+
+        }
+
+    ])
+//gotta return data as video lists not watchHistory
+    res.status(200).json( new ApiResponse(200,currUser[0].VideoList || [],"Watch History fetched successfully"))
+})
+
 export {
     registeruser,
     loginUser,
@@ -365,5 +500,7 @@ export {
     updateAccountDetails,
     getCurrentUser,
     UpdateUserCover,
-    UpdateUserAvatar
+    UpdateUserAvatar,
+    getUserProfile,
+    getWatchHistory
 };
