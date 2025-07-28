@@ -1,6 +1,6 @@
 import { asynchandler } from "../utils/asyncHandler";
 import { Video } from "../models/video.model";
-import ApiResponse from "../utils/Apiresponse";
+import ApiResponse from "../utils/ApiResponse";
 import ApiError from "../utils/Apierrors";
 import uploadOnCloudinary from "../utils/cloudinary";
 import mongoose, { mongo } from "mongoose";

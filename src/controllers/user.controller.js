@@ -2,7 +2,7 @@ import { asynchandler } from "../utils/asyncHandler.js";
 import ApiError from "../utils/Apierrors.js";
 import { User } from "../models/user.model.js"
 import uploadOnCloudinary from "../utils/cloudinary.js";
-import ApiResponse from "../utils/Apiresponse.js";
+import ApiResponse from "../utils/ApiResponse.js";
 import Jwt from "jsonwebtoken"
 import { useInsertionEffect } from "react";
 import { json } from "express";
