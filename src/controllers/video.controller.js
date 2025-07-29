@@ -170,13 +170,42 @@ const getVideoById = asynchandler(async (req, res) => {
         },
         {
             $addFields: {
-                ownerD: {
+                ownerD: { //this step works similar to $unwind
                     $first: "$currVidOwnerDetails"
                 }
             }
         },
         {
-            $unset: "$currVidOwnerDetails" //unset completely removes the field (since this field req now)
+            $lookup: {//advanced form of lookup- correlated subquery lookup(let,pipeline)
+                from: "likes", //now we're inside likes collection
+                let: { videoIdPrevStage: "$_id" }, //creating a variable to store id of current doc passed fomr previous stage 
+                pipeline: [
+                    {
+                        $match: {
+                            $expr: {//$expr lets you compare fields using expressions (like $eq, $gt, etc.)
+                                $and: [//if both inside conditions are true , those docs in likes are filtered
+                                    { $eq: ["$targetId", "$$videoIdPrevStage"] },//$$ to distinguish between variable and field(for field we use $)
+                                    { $eq: ["targetType", "Video"] },
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        $count: "countDocs" //counts all docs and stores in countDocs
+                    }
+                ],
+                as:"LikeInfo" //this array will contain one object containing countDocs
+            }
+        },
+        {
+            $addFields:{
+                Likecount:{
+                    $ifNull:[{$arrayElemAt:["$LikeInfo.countDocs",0]},0] //assigns 0 if null or count of like
+                }
+            }
+        },
+        {
+            $unset: ["currVidOwnerDetails","LikeInfo"] //unset completely removes the field (since this field req now)
         },
         {
             $limit: 1
@@ -284,16 +313,17 @@ const togglePublishStatus = asynchandler(async (req, res) => {
         throw new ApiError(400, "Invalid video ID");
     }
 
-    const updatedVideo= await Video.findByIdAndUpdate(videoId,{
-        $set:{
+    const updatedVideo = await Video.findByIdAndUpdate(videoId, {
+        $set: {
             ispublished: !ispublished
         }
     })
 
-  res.status(200).json(
+    res.status(200).json(
         new ApiResponse(200, updatedVideo, `Video has been ${updatedVideo.isPublished ? "published" : "unpublished"}`)
-    );})
-    
+    );
+})
+
 export {
     getAllVideos,
     publishAVideo,

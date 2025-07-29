@@ -50,6 +50,41 @@ const getVideoComments = asynchandler(async (req, res) => {
         populateOwner(),
         unwindOwner(),//now ownerdetails will contain single object taken out from the array that looup returned
         {
+
+        },
+        {
+            $lookup: {//advanced form of lookup- correlated subquery lookup(let,pipeline)
+                from: "likes", //now we're inside likes collection
+                let: { commentIdPrevStage: "$_id" }, //creating a variable to store id of current doc passed fomr previous stage 
+                pipeline: [
+                    {
+                        $match: {
+                            $expr: {//$expr lets you compare fields using expressions (like $eq, $gt, etc.)
+                                $and: [//if both inside conditions are true , those docs in likes are filtered
+                                    { $eq: ["$targetId", "$$commentIdPrevStage"] },//$$ to distinguish between variable and field(for field we use $)
+                                    { $eq: ["targetType", "Comment"] },
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        $count: "countDocs" //counts all docs and stores in countDocs
+                    }
+                ],
+                as:"CommentInfo" //this array will contain one object containing countDocs
+            }
+        },
+        {
+            $addFields:{
+                Likecount:{
+                    $ifNull:[{$arrayElemAt:["$CommentInfo.countDocs",0]},0] //assigns 0 if null or count of like
+                }
+            }
+        },
+        {
+            $unset:"CommentInfo"
+        },
+        {
             $sort: {
                 createdAt: -1
             }
@@ -58,7 +93,8 @@ const getVideoComments = asynchandler(async (req, res) => {
             $project: {
                 content: 1,
                 createdAt: 1,
-                ownerDetails: 1
+                ownerDetails: 1,
+                Likecount:1
             }
         }
     ])
